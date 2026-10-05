@@ -695,15 +695,29 @@ app.layout = dbc.Container([
                             }
                         ),
 
-                        html.Div(
-                            "Predictive Energy Optimization · LSTM/XGBoost · MLOps Registry",
-                            style={
-                                "color": TEXT_MUTED,
-                                "fontSize": "17px",
-                                "marginBottom": "0px"
-                            }
-                        )
-                    ], style={"display": "flex", "alignItems": "center"}),
+                        html.Div([
+                    # 1. Le Logo ajouté juste avant le flocon
+                    html.Img(src="/assets/logo_ATON.png", style={
+                        "height": "45px", 
+                        "marginRight": "15px"
+                    }),
+
+                    # 2. Le Flocon conservé
+                    html.Span("❄️", style={
+                        "fontSize": "34px",
+                        "marginRight": "14px"
+                    }),
+
+                    # 3. Le Titre (sous-titre supprimé pour faire de la place)
+                    html.H2(
+                        "Chiller Energy Optimizer (CEO)",
+                        className="mb-0",
+                        style={
+                            "color": TEXT_LIGHT,
+                            "fontWeight": "800",
+                            "letterSpacing": "0.3px"
+                        }
+                    )
                 ], style={
                     "display": "flex",
                     "alignItems": "center"
