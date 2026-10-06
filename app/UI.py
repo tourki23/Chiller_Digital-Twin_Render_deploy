@@ -610,7 +610,7 @@ tab_supervision_content = dbc.Row([
 
                 dcc.DatePickerSingle(
                     id='date-picker',
-                    date=date(2026, 5, 15),
+                    date=date(2026, 6, 24),
                     display_format='DD/MM/YYYY',
                     className="mb-3 w-100"
                 ),
