@@ -570,7 +570,7 @@ tab_supervision_content = dbc.Row([
                         {'label': k, 'value': k}
                         for k in MODELS_CONFIG['physiciens'].keys()
                     ],
-                    value="LSTM 128u Attention",
+                    value="LSTM 128u NoAttention",
                     className="mb-3 text-dark"
                 ),
 
@@ -586,7 +586,7 @@ tab_supervision_content = dbc.Row([
                         {'label': k, 'value': k}
                         for k in MODELS_CONFIG['energetiques'].keys()
                     ],
-                    value="XGBoost Depth 5",
+                    value="XGBoost Depth 3",
                     className="mb-3 text-dark"
                 ),
 
