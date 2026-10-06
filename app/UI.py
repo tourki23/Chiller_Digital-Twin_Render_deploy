@@ -508,14 +508,18 @@ def build_kpi(df_plot, is_opti_active):
             "Consommation réelle"
         ),
 
-        kpi_row_item(
-            "PRÉDICTION IA",
-            f"{total_ia_kwh:.1f} kWh",
-            f"{total_ia_mn} mn",
-            couleur_ia,
-            couleur_ia,
-            "Estimation modèle énergétique"
-        ),
+        # --- DÉBUT DU BLOC MASQUÉ ---
+        html.Div([
+            kpi_row_item(
+                "PRÉDICTION IA",
+                f"{total_ia_kwh:.1f} kWh",
+                f"{total_ia_mn} mn",
+                couleur_ia,
+                couleur_ia,
+                "Estimation modèle énergétique"
+            )
+        ], style={'display': 'none'}), 
+        # --- FIN DU BLOC MASQUÉ ---
 
         html.Div([
             kpi_row_item(
