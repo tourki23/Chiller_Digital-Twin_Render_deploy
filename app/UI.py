@@ -694,7 +694,7 @@ app.layout = dbc.Container([
 
                 # 2. La nouvelle icône Flocon (Image au lieu de l'emoji texte)
                 html.Img(src="/assets/flocon.png", style={
-                    "height": "50px",  # Hauteur ajustable selon vos préférences
+                    "height": "60px",  # Hauteur ajustable selon vos préférences
                     "marginLeft": "20px"
                 }),
 
@@ -724,7 +724,7 @@ app.layout = dbc.Container([
 
                 # Le Logo ATON
                 html.Img(src="/assets/logo_ATON.png", style={
-                    "height": "70px", # Grande taille ajustée
+                    "height": "75px", # Grande taille ajustée
                     "objectFit": "contain"
                 })
             ], style={
