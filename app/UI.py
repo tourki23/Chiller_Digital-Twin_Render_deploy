@@ -677,29 +677,29 @@ app.layout = dbc.Container([
     dbc.Row([
         dbc.Col([
             html.Div([
-                html.Div([
-                    # 1. Le Logo ajouté juste avant le flocon
-                    html.Img(src="/assets/logo_ATON.png", style={
-                        "height": "45px", 
-                        "marginRight": "15px"
-                    }),
-
-                    # 2. Le Flocon conservé
+               html.Div([
+                    # 1. Le Flocon en premier
                     html.Span("❄️", style={
                         "fontSize": "34px",
                         "marginRight": "14px"
                     }),
 
-                    # 3. Le Titre (sous-titre supprimé pour faire de la place)
+                    # 2. Le Titre plaqué à gauche
                     html.H2(
                         "Chiller Energy Optimizer (CEO)",
                         className="mb-0",
                         style={
                             "color": TEXT_LIGHT,
                             "fontWeight": "800",
-                            "letterSpacing": "0.3px"
+                            "letterSpacing": "0.3px",
+                            "marginRight": "auto"  # <-- Pousse le logo vers la droite pour combler le vide
                         }
-                    )
+                    ),
+
+                    # 3. Le Logo avec la taille doublée (90px)
+                    html.Img(src="/assets/logo_ATON.png", style={
+                        "height": "90px"  # <-- Taille doublée (anciennement 45px)
+                    })
                 ], style={
                     "display": "flex",
                     "alignItems": "center"
