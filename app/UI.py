@@ -24,16 +24,20 @@ from flask import Response
 
 warnings.filterwarnings('ignore')
 
-# Configuration du logging (Redirigé vers sys.stdout pour affichage en direct sur Render)
+# Configuration du logging (Forcé vers sys.stderr pour affichage en direct sur Render avec Gunicorn)
 if not os.path.exists('app_logs'):
     os.makedirs('app_logs')
-logging.basicConfig(
-    stream=sys.stdout, 
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logging.info("[SYSTEM] 🚀 Démarrage de l'interface du Jumeau Numérique")
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+handler = logging.StreamHandler(sys.stderr)
+handler.setFormatter(logging.Formatter('%(asctime)s - [%(levelname)s] - %(message)s'))
+logger.addHandler(handler)
+
+logging.info("[SYSTEM] 🚀 Sondes débloquées et connectées à Render")
 # ===========================================================
 # CONFIGURATION DYNAMIQUE DES MODÈLES
 # ===========================================================
