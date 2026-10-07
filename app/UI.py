@@ -17,21 +17,22 @@ import threading
 import time
 import base64
 import logging
+import sys
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from flask import Response
 
 warnings.filterwarnings('ignore')
 
-# Configuration du logging
+# Configuration du logging (Redirigé vers sys.stdout pour affichage en direct sur Render)
 if not os.path.exists('app_logs'):
     os.makedirs('app_logs')
 logging.basicConfig(
-    filename='app_logs/app_digital_twin.log', 
+    stream=sys.stdout, 
     level=logging.INFO, 
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
-logging.info("🚀 Démarrage de l'interface du Jumeau Numérique")
+logging.info("[SYSTEM] 🚀 Démarrage de l'interface du Jumeau Numérique")
 
 # ===========================================================
 # CONFIGURATION DYNAMIQUE DES MODÈLES
@@ -63,14 +64,14 @@ INTERVAL_MS  = 600
 # ===========================================================
 # COULEURS PRINCIPALES & HARMONISÉES
 # ===========================================================
-couleur_ia  = "#5BD4F2"  # Cyan doux
-couleur_opt = "#2ECC71"  # Vert frais, émeraude, non agressif
+couleur_ia  = "#5BD4F2"
+couleur_opt = "#2ECC71"
 
 # ===========================================================
 # STYLE UI — DASHBOARD PROFESSIONNEL
 # ===========================================================
-APP_BG = "#050505"         # Noir beaucoup plus dense et profond
-CARD_BG = "#0D1117"        # Noir ardoise très sombre pour les cartes
+APP_BG = "#050505"
+CARD_BG = "#0D1117"
 CARD_BG_SOFT = "#161B22"
 BORDER_SOFT = "rgba(255,255,255,0.08)"
 TEXT_MUTED = "#A8B3C7"
@@ -136,59 +137,51 @@ STYLE_TABLE = {
     'boxShadow': '0 12px 35px rgba(0,0,0,0.22)'
 }
 
-# Variables globales pour le moteur de calcul lourd
 scaler_X = None
 modele_physicien = None
 modele_financier = None
 
-print("=" * 50)
-print("🌐 JUMEAU NUMÉRIQUE V7 — MLOps Dashboard & Data")
-print("=" * 50)
-
 # ===========================================================
 # CHARGEMENT INITIAL & BDD
 # ===========================================================
-# Ajout d'un timeout de 15 secondes pour éviter le verrouillage lors des accès concurrents
-engine = create_engine(DB_URL, connect_args={'timeout': 15, 'check_same_thread': False})
+logging.info("[DB] Initialisation de la connexion SQLAlchemy...")
+engine   = create_engine(DB_URL)
 executor = ThreadPoolExecutor(max_workers=2)
 
-with engine.begin() as conn:
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS optimisations_data (
-            timestamp TIMESTAMP, t_int_opt FLOAT, etat_opt FLOAT,
-            pwr_opt FLOAT, pente_chauffe FLOAT, pente_froid FLOAT
-        )
-    """))
-    conn.execute(text("DELETE FROM optimisations_data"))
+try:
+    logging.info("[DB] Création table optimisations_data...")
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS optimisations_data (
+                timestamp TIMESTAMP, t_int_opt FLOAT, etat_opt FLOAT,
+                pwr_opt FLOAT, pente_chauffe FLOAT, pente_froid FLOAT
+            )
+        """))
+        conn.execute(text("DELETE FROM optimisations_data"))
+    logging.info("[DB] Table préparée avec succès.")
+except Exception as e:
+    logging.error(f"[DB] ERREUR fatale lors de l'initialisation DB: {e}")
 
-print("📥 Chargement en mémoire des données de simulation 2026...")
+logging.info("[DB] Lecture de simulation_data_2026_table...")
 df_sim = (pd.read_sql_table('simulation_data_2026_table', engine)
             .sort_values('timestamp')
             .reset_index(drop=True))
 df_sim['timestamp'] = pd.to_datetime(df_sim['timestamp'])
 df_sim['_date'] = df_sim['timestamp'].dt.date
 date_index = df_sim.groupby('_date').apply(lambda g: (g.index[0], g.index[-1])).to_dict()
-print(f"  ✅ {len(df_sim):,} lignes chargées")
+logging.info(f"[DB] ✅ {len(df_sim):,} lignes de simulation chargées")
 
-
-# ===========================================================
-# INIT DASH APP & PROMETHEUS METRICS
-# ===========================================================
-# 1. On crée l'application Dash normalement (sans passer 'server=server')
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG], suppress_callback_exceptions=True)
 
-# 2. Définition des sondes Prometheus pour le LSTM et XGBOOST
 PREDICTION_COUNT = Counter('app_lstm_predictions_total', 'Nombre total de predictions LSTM')
 PREDICTION_LATENCY = Histogram('app_lstm_prediction_latency_seconds', 'Temps mis pour une prediction LSTM')
 
 XGB_PREDICTION_COUNT = Counter('app_xgb_predictions_total', 'Nombre total de predictions XGBoost')
 XGB_PREDICTION_LATENCY = Histogram('app_xgb_prediction_latency_seconds', 'Temps mis pour une prediction XGBoost')
 
-# 3. On ajoute la route Flask sur le serveur généré par Dash ('app.server')
 @app.server.route('/metrics')
 def metrics():
     return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
-
 
 # ===========================================================
 # MOTEUR DE CALCUL
@@ -243,22 +236,27 @@ def _compute_optimisation(t_preds, etat_reel_jour, etat_init, t_init):
     )
 
 def _write_optimisation_async(df_opt):
+    logging.info("[DB-ASYNC] Début de l'écriture en base de données asynchrone...")
     try:
-        # if_exists='replace' recrée la table avec les nouvelles données en une seule transaction
-        df_opt.to_sql('optimisations_data', engine, if_exists='replace', index=False)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM optimisations_data"))
+        df_opt.to_sql('optimisations_data', engine, if_exists='append', index=False)
+        logging.info("[DB-ASYNC] Écriture réussie des données d'optimisation.")
     except Exception as e:
-        logging.error(f"Erreur d'écriture en base de données: {e}")
+        logging.error(f"[DB-ASYNC] 🚨 Erreur d'écriture en base de données: {e}")
         pass
-
 
 @PREDICTION_LATENCY.time()
 def compute_day_data(target_date_str):
+    logging.info(f"[COMPUTE] Démarrage des calculs pour la date: {target_date_str}")
     if scaler_X is None:
+        logging.warning("[COMPUTE] scaler_X est manquant, abandon du calcul.")
         return None
 
     target_date = pd.to_datetime(target_date_str).date()
 
     if target_date not in date_index:
+        logging.warning(f"[COMPUTE] Date {target_date} non trouvée dans l'index.")
         return None
 
     i_start_raw, i_end_raw = date_index[target_date]
@@ -270,23 +268,30 @@ def compute_day_data(target_date_str):
 
     PREDICTION_COUNT.inc()
 
-    # Conversion explicite en tenseur pour empêcher TensorFlow de recompiler le graphe (retracing)
-    seqs_tf = tf.convert_to_tensor(seqs, dtype=tf.float32)
-    # Appel direct du modèle (nettement plus performant que .predict() pour des petits lots)
-    t_preds = modele_physicien(seqs_tf, training=False).numpy().flatten()
+    logging.info(f"[IA] Lancement de modele_physicien.predict (Batch size: {len(seqs)})...")
+    t0 = time.time()
+    t_preds = modele_physicien.predict(
+        seqs,
+        batch_size=64,
+        verbose=0
+    ).flatten()
+    logging.info(f"[IA] modele_physicien.predict terminé en {time.time() - t0:.2f}s")
 
     df_day['t_int_pred'] = t_preds
 
-    # --- MÉTRIQUE XGBOOST AJOUTÉE ICI ---
     with XGB_PREDICTION_LATENCY.time():
         XGB_PREDICTION_COUNT.inc()
+        logging.info("[IA] Lancement modele_financier.predict (1/2)...")
+        t1 = time.time()
         df_day['pwr_pred_ia'] = modele_financier.predict(
             df_day[['t_int_pred', 'Etat_Compresseur']].rename(columns={'t_int_pred': 'T_int'})
         )
+        logging.info(f"[IA] modele_financier.predict (1/2) terminé en {time.time() - t1:.2f}s")
 
     etat_init = float(df_sim.iloc[idx_start - 1]['Etat_Compresseur'])
     t_init = float(df_sim.iloc[idx_start - 1]['T_int'])
 
+    logging.info("[COMPUTE] Calcul de l'optimisation métier en cours...")
     t_opts, etat_opts, pente_c, pente_f = _compute_optimisation(
         t_preds,
         df_day['Etat_Compresseur'].values,
@@ -299,15 +304,17 @@ def compute_day_data(target_date_str):
     df_day['pente_chauffe'] = pente_c
     df_day['pente_froid'] = pente_f
 
-    # --- MÉTRIQUE XGBOOST AJOUTÉE ICI AUSSI ---
     with XGB_PREDICTION_LATENCY.time():
         XGB_PREDICTION_COUNT.inc()
+        logging.info("[IA] Lancement modele_financier.predict (2/2) pour données optimisées...")
+        t2 = time.time()
         df_day['pwr_opt'] = modele_financier.predict(
             pd.DataFrame({
                 'T_int': t_opts,
                 'Etat_Compresseur': etat_opts
             })
         )
+        logging.info(f"[IA] modele_financier.predict (2/2) terminé en {time.time() - t2:.2f}s")
 
     df_opt_db = df_day[
         ['timestamp', 't_int_opt', 'etat_opt', 'pwr_opt', 'pente_chauffe', 'pente_froid']
@@ -315,20 +322,28 @@ def compute_day_data(target_date_str):
 
     df_opt_db['timestamp'] = df_opt_db['timestamp'].astype(str)
 
+    logging.info("[THREAD] Soumission de la tâche d'écriture DB au ThreadPoolExecutor...")
     executor.submit(_write_optimisation_async, df_opt_db)
 
     df_day['timestamp'] = df_day['timestamp'].astype(str)
 
+    logging.info("[COMPUTE] Calcul terminé avec succès pour la journée.")
     return df_day.to_dict('records')
 
 _day_cache = {}
 _cache_lock = threading.Lock()
 
 def get_day_data_cached(date_str):
+    logging.info(f"[THREAD] Tentative d'acquisition de _cache_lock pour {date_str}...")
     with _cache_lock:
+        logging.info(f"[THREAD] _cache_lock acquis pour {date_str}.")
         if date_str not in _day_cache:
+            logging.info(f"[CACHE] Données non trouvées pour {date_str}, lancement du calcul.")
             _day_cache[date_str] = compute_day_data(date_str)
+        else:
+            logging.info(f"[CACHE] Données récupérées depuis le cache pour {date_str}.")
         return _day_cache[date_str]
+    # Libération implicite du verrou ici
 
 # ===========================================================
 # VISUALISATION & KPI
@@ -803,6 +818,9 @@ def update_models_registry_ui(phys_name, ener_name):
     global scaler_X, modele_physicien, modele_financier, _day_cache
 
     try:
+        logging.info(f"[IA] Début du chargement des modèles: {phys_name} / {ener_name}")
+        t_start_load = time.time()
+        
         folder_phys = MODELS_CONFIG['physiciens'][phys_name].strip()
         file_ener = MODELS_CONFIG['energetiques'][ener_name].strip()
 
@@ -821,6 +839,7 @@ def update_models_registry_ui(phys_name, ener_name):
         scaler_X = joblib.load(
             os.path.join(path_phys_dir, "scaler.pkl")
         )
+        logging.info("[IA] scaler_X chargé avec succès.")
 
         modele_physicien = tf.keras.models.load_model(
             os.path.join(
@@ -829,9 +848,11 @@ def update_models_registry_ui(phys_name, ener_name):
             ),
             compile=False
         )
+        logging.info("[IA] modele_physicien LSTM chargé avec succès.")
 
         modele_financier = xgb.XGBRegressor()
         modele_financier.load_model(path_ener_file)
+        logging.info(f"[IA] modele_financier XGBoost chargé avec succès. Durée totale: {time.time() - t_start_load:.2f}s")
 
         with _cache_lock:
             _day_cache = {}
@@ -852,6 +873,7 @@ def update_models_registry_ui(phys_name, ener_name):
         ], className="text-center mb-3"), time.time()
 
     except Exception as e:
+        logging.error(f"[IA] 🚨 Erreur lors du chargement des modèles: {e}")
         return html.Div(
             f"❌ Erreur: {str(e)}",
             className="text-danger fw-bold text-center mb-3"
@@ -868,6 +890,7 @@ def manage_daily_batch(picked_date, _):
     if not picked_date or scaler_X is None:
         return dash.no_update
 
+    logging.info(f"[UI] Changement de date détecté : appel de get_day_data_cached({picked_date})")
     dict_data = get_day_data_cached(picked_date)
 
     return dict_data if dict_data else None
@@ -1026,10 +1049,12 @@ def update_opti_table(active_tab, phys_name, n_int):
         return dash.no_update
 
     try:
+        logging.info("[DB] Lecture de la table optimisations_data...")
         df_opti = pd.read_sql(
             'SELECT * FROM optimisations_data ORDER BY timestamp DESC',
             engine
         )
+        logging.info("[DB] Lecture optimisations_data réussie.")
 
         for col in df_opti.select_dtypes(include=['float', 'float64', 'float32']).columns:
             if col in ['pente_chauffe', 'pente_froid']:
@@ -1043,7 +1068,6 @@ def update_opti_table(active_tab, phys_name, n_int):
                 className="text-warning mt-4"
             )
 
-        # La liste complète des colonnes pour les mettre en ocre
         target_ochre_headers = ['timestamp', 't_int_opt', 'etat_opt', 'pwr_opt', 'pente_chauffe', 'pente_froid']
 
         table = dash_table.DataTable(
@@ -1078,6 +1102,7 @@ def update_opti_table(active_tab, phys_name, n_int):
         ])
 
     except Exception as e:
+        logging.error(f"[DB] 🚨 Erreur de lecture de la base de données : {e}")
         return html.Div(
             f"Erreur de lecture de la base de données : {e}",
             className="text-danger"
@@ -1188,7 +1213,6 @@ def update_sim_table(active_tab, daily_data, picked_date):
     ).columns:
         df_clean[col] = df_clean[col].round(2)
 
-    # La liste complète des colonnes pour les mettre en ocre
     target_ochre_headers_brutes = ['timestamp', 'T_ext', 'T_int', 'Etat_Compresseur', 'Puissance_Elec_kW', 'day_sin', 'day_cos', 'hour_sin', 'hour_cos']
 
     table = dash_table.DataTable(
@@ -1275,10 +1299,8 @@ create_zoom_callback('img-perf-learn')
 # LANCEMENT
 # ===========================================================
 
-# On expose le serveur Flask pour Azure
 server = app.server
 
-# Endpoint de santé (doit répondre même si les modèles chargent encore)
 @server.route('/health')
 def health():
     return 'OK', 200
@@ -1286,19 +1308,9 @@ def health():
 if __name__ == '__main__':
     import os
     
-    # On récupère le port Azure ou on utilise 9050 par défaut
     port_azure = int(os.environ.get("PORT", 9050))
     
-    print("--- DÉMARRAGE DU JUMEAU NUMÉRIQUE ---")
-    print(f"Serveur : http://0.0.0.0:{port_azure}")
+    logging.info("[SYSTEM] --- DÉMARRAGE DU JUMEAU NUMÉRIQUE ---")
+    logging.info(f"[SYSTEM] Serveur : http://0.0.0.0:{port_azure}")
     
-    # OPTIONAL: Tu peux pré-charger ici, mais il est préférable 
-    # de laisser les modèles se charger au premier accès pour ne pas bloquer Azure/Render.
-    try:
-        # On ne bloque pas le démarrage si possible
-        # update_models_registry_ui("LSTM 128u Attention", "XGBoost Depth 5")
-        pass
-    except Exception as e:
-        print(f"Attention: Pré-chargement échoué (sera réessayé au lancement) : {e}")
-
     app.run_server(host='0.0.0.0', port=port_azure, debug=False)
