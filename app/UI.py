@@ -809,7 +809,7 @@ def update_models_registry_ui(phys_name, ener_name):
         path_phys_dir = os.path.join(
             "trained_models",
             "modeles_physiciens",
-            "folder_phys"
+            folder_phys
         )
 
         path_ener_file = os.path.join(
